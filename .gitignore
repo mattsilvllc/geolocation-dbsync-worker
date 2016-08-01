@@ -1,0 +1,12 @@
+# Project
+packages/
+venv/
+config.json
+config.local.json
+payload.json
+creds.data
+iron.json
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
