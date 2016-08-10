@@ -16,6 +16,7 @@ if [[ "$*" == *'--pack'* || "x${1}" == "x" ]]; then
         "--exclude=/.git/*" \
         "--exclude=/.idea/*" \
         "--exclude=/build/*" \
+        "--exclude=/downloads/*" \
         --exclude=.gitignore \
         --exclude=deploy.sh \
         --exclude=Dockerfile \
