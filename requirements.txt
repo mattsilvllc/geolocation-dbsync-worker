@@ -1,0 +1,5 @@
+Elixir==0.7.1
+MySQL-python==1.2.5
+SQLAlchemy==0.7.8
+requests==2.10.0
+python-magic==0.4.12
