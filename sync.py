@@ -63,7 +63,6 @@ def get_env(key, else_val=None):
     else:
         return else_val
 
-LOG_FILE = '/tmp/pdf_spider_log.txt'  # TODO: Use Splunk
 DOWNLOAD_FOLDER = '/worker/downloads'
 
 
