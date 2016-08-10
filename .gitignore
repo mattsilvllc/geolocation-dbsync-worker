@@ -1,5 +1,6 @@
 # Project
 packages/
+downloads/*
 venv/
 config.json
 config.local.json
