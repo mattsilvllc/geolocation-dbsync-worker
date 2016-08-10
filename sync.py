@@ -22,24 +22,24 @@ from sqlalchemy.schema import ThreadLocalMetaData
 # IronWorker Settings
 # --------------------
 
-# Get Payload
-payload_file = None
-payload = None
-env_payload_file = os.getenv("PAYLOAD_FILE")
-
-# Gets payload from enviroment variable
-if env_payload_file is not None:
-    with open(env_payload_file, "r") as f:
-        payload = json.loads(f.read())
-
-# Gets payload from passed arguments
-else:
-    for i in range(len(sys.argv)):
-        if sys.argv[i] == "-payload" and (i + 1) < len(sys.argv):
-            payload_file = sys.argv[i + 1]
-            with open(payload_file, "r") as f:
-                payload = json.loads(f.read())
-            break
+# # Get Payload
+# payload_file = None
+# payload = None
+# env_payload_file = os.getenv("PAYLOAD_FILE")
+#
+# # Gets payload from enviroment variable
+# if env_payload_file is not None:
+#     with open(env_payload_file, "r") as f:
+#         payload = json.loads(f.read())
+#
+# # Gets payload from passed arguments
+# else:
+#     for i in range(len(sys.argv)):
+#         if sys.argv[i] == "-payload" and (i + 1) < len(sys.argv):
+#             payload_file = sys.argv[i + 1]
+#             with open(payload_file, "r") as f:
+#                 payload = json.loads(f.read())
+#             break
 
 
 # Get Config
@@ -55,7 +55,7 @@ if env_config_file is not None:
 
 
 def get_env(key, else_val=None):
-    """ Get enviroment variable if not then get value from iron config """
+    """ Get enviroment variable if not then get value from config.json and payload.json """
     if os.getenv(key):
         return os.getenv(key)
     elif config.get(key):
@@ -63,9 +63,6 @@ def get_env(key, else_val=None):
     else:
         return else_val
 
-
-DEBUG = (True if payload.get("debug") and json.loads(
-    payload.get("debug")) is True else False)
 LOG_FILE = '/tmp/pdf_spider_log.txt'  # TODO: Use Splunk
 DOWNLOAD_FOLDER = '/worker/downloads'
 
@@ -99,9 +96,12 @@ def download(url):
     ts = time.time()
     response = {}
 
-    file_name = DOWNLOAD_FOLDER + '/' + 'geolite-city-csv-{timestamp}.zip'.format(
-        timestamp=int(ts)
-    )
+    # Verify if download folder exists, if not then create folder
+    if not os.path.exists(DOWNLOAD_FOLDER):
+        os.makedirs(DOWNLOAD_FOLDER)
+
+    file_name = DOWNLOAD_FOLDER + '/' + 'geolite-city-csv-{timestamp}.zip'\
+        .format(timestamp=int(ts))
 
     r = requests.get(url, stream=True, verify=False)
 
@@ -152,7 +152,7 @@ with open("schemas/geo_ip_locations.sql") as f:
 # -------------------
 # Populate DB tables
 # -------------------
-load_city_blocks_sql = """
+load_city_blocks_sql = """\
 TRUNCATE geo_ip_blocks;
 
 LOAD DATA LOCAL INFILE '{file_absolute_path}' INTO TABLE geo_ip_blocks COLUMNS TERMINATED BY ',' OPTIONALLY ENCLOSED BY '"' IGNORE 1 LINES (
@@ -175,7 +175,7 @@ upc_engine_session.execute(load_city_blocks_sql)
 upc_engine_session.commit()
 
 
-load_city_locations_sql = """
+load_city_locations_sql = """\
 TRUNCATE geo_ip_locations;
 
 LOAD DATA LOCAL INFILE '{file_absolute_path}' INTO TABLE geo_ip_locations COLUMNS TERMINATED BY ',' OPTIONALLY ENCLOSED BY '"' IGNORE 1 LINES (
@@ -203,7 +203,7 @@ upc_engine_session.commit()
 # Create Indexes
 # ---------------
 try:
-    upc_engine_session.execute("""
+    upc_engine_session.execute("""\
     ALTER TABLE `geo_ip_blocks` ADD PRIMARY KEY `ip_to` (`ip_to`);
     ALTER TABLE `geo_ip_locations` ADD PRIMARY KEY `geoname_id` (`geoname_id`);
     """)
@@ -215,7 +215,7 @@ except Exception as err:
 # -----------------
 # Creates Function
 # -----------------
-# TODO: FIX SQl syntax on CREATE FUNCTION statement.
+# TODO: FIX SQL syntax on CREATE FUNCTION statement.
 # try:
 #     upc_engine_engine.execute("""DROP FUNCTION IF EXISTS `IP2Location`;""")
 #     upc_engine_session.commit()
