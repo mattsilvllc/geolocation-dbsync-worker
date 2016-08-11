@@ -88,9 +88,9 @@ upc_engine_metadata.bind = upc_engine_engine
 # End
 
 
-# ---------------
-# Download Files
-# ---------------
+# --------
+# Helpers
+# --------
 def download(url):
     ts = time.time()
     response = {}
@@ -118,127 +118,136 @@ def download(url):
             response['file_name'] = file_name
 
     return response
-
-response = download("http://geolite.maxmind.com/download/geoip/database/GeoLite2-City-CSV.zip")
-
-if response.get("file_name"):
-    city_blocks_file_path = DOWNLOAD_FOLDER+"/"
-    city_locations_file_path = DOWNLOAD_FOLDER+"/"
-
-    with zipfile.ZipFile(response.get("file_name"), 'r') as zip_ref:
-        zip_ref.extractall(DOWNLOAD_FOLDER)
-        for name in zip_ref.namelist():
-            if "GeoLite2-City-Blocks-IPv4.csv" in name:
-                city_blocks_file_path += name
-
-            if "GeoLite2-City-Locations-en.csv" in name:
-                city_locations_file_path += name
-# End
-
-# --------------
-# Create tables
-# --------------
-with open("schemas/geo_ip_blocks.sql") as f:
-    upc_engine_session.execute(f.read())
-    upc_engine_session.commit()
-
-with open("schemas/geo_ip_locations.sql") as f:
-    upc_engine_session.execute(f.read())
-    upc_engine_session.commit()
 # End
 
 
-# -------------------
-# Populate DB tables
-# -------------------
-load_city_blocks_sql = """\
-TRUNCATE geo_ip_blocks;
+def sync():
+    # ---------------
+    # Download Files
+    # ---------------
+    response = download("http://geolite.maxmind.com/download/geoip/database/GeoLite2-City-CSV.zip")  # TODO: Parse URL from config.json
 
-LOAD DATA LOCAL INFILE '{file_absolute_path}' INTO TABLE geo_ip_blocks COLUMNS TERMINATED BY ',' OPTIONALLY ENCLOSED BY '"' IGNORE 1 LINES (
-@network,
-geoname_id,
-registered_country_geoname_id,
-represented_country_geoname_id,
-is_anonymous_proxy,
-is_satellite_provider,
-postal_code,
-latitude,
-longitude,
-accuracy_radius) SET
-ip_from = INET_ATON(SUBSTRING(@network, 1, LOCATE('/', @network) - 1)),
-ip_to = (INET_ATON(SUBSTRING(@network, 1, LOCATE('/', @network) - 1)) + (pow(2, (32-CONVERT(SUBSTRING(@network, LOCATE('/', @network) + 1), UNSIGNED INTEGER)))-1));
-""".format(file_absolute_path=city_blocks_file_path)
+    if response.get("file_name"):
+        city_blocks_file_path = DOWNLOAD_FOLDER
+        city_locations_file_path = DOWNLOAD_FOLDER
 
-# Execute query and commit
-upc_engine_session.execute(load_city_blocks_sql)
-upc_engine_session.commit()
+        with zipfile.ZipFile(response.get("file_name"), 'r') as zip_ref:
+            zip_ref.extractall(DOWNLOAD_FOLDER)
+            for name in zip_ref.namelist():
+                if "GeoLite2-City-Blocks-IPv4.csv" in name:
+                    city_blocks_file_path += "/"+name
+
+                if "GeoLite2-City-Locations-en.csv" in name:
+                    city_locations_file_path += "/"+name
+
+    # --------------
+    # Create tables
+    # --------------
+    with open("schemas/geo_ip_blocks.sql") as f:
+        upc_engine_session.execute(f.read())
+        upc_engine_session.commit()
+
+    with open("schemas/geo_ip_locations.sql") as f:
+        upc_engine_session.execute(f.read())
+        upc_engine_session.commit()
+    # End
+
+    # -------------------
+    # Populate DB tables
+    # -------------------
+    if city_blocks_file_path:
+        load_city_blocks_sql = """\
+        TRUNCATE geo_ip_blocks;
+
+        LOAD DATA LOCAL INFILE '{file_absolute_path}' INTO TABLE geo_ip_blocks COLUMNS TERMINATED BY ',' OPTIONALLY ENCLOSED BY '"' IGNORE 1 LINES (
+        @network,
+        geoname_id,
+        registered_country_geoname_id,
+        represented_country_geoname_id,
+        is_anonymous_proxy,
+        is_satellite_provider,
+        postal_code,
+        latitude,
+        longitude,
+        accuracy_radius) SET
+        ip_from = INET_ATON(SUBSTRING(@network, 1, LOCATE('/', @network) - 1)),
+        ip_to = (INET_ATON(SUBSTRING(@network, 1, LOCATE('/', @network) - 1)) + (pow(2, (32-CONVERT(SUBSTRING(@network, LOCATE('/', @network) + 1), UNSIGNED INTEGER)))-1));
+        """.format(file_absolute_path=city_blocks_file_path)
+
+        # Execute query and commit
+        upc_engine_session.execute(load_city_blocks_sql)
+        upc_engine_session.commit()
+
+    if city_locations_file_path:
+        load_city_locations_sql = """\
+        TRUNCATE geo_ip_locations;
+
+        LOAD DATA LOCAL INFILE '{file_absolute_path}' INTO TABLE geo_ip_locations COLUMNS TERMINATED BY ',' OPTIONALLY ENCLOSED BY '"' IGNORE 1 LINES (
+        geoname_id,
+        locale_code,
+        continent_code,
+        continent_name,
+        country_iso_code,
+        country_name,
+        subdivision_1_iso_code,
+        subdivision_1_name,
+        subdivision_2_iso_code,
+        subdivision_2_name,
+        city_name,
+        metro_code,
+        time_zone);
+        """.format(file_absolute_path=city_locations_file_path)
+
+        # Execute query and commit
+        upc_engine_session.execute(load_city_locations_sql)
+        upc_engine_session.commit()
+    # End
 
 
-load_city_locations_sql = """\
-TRUNCATE geo_ip_locations;
+    # ---------------
+    # Create Indexes
+    # ---------------
+    try:
+        upc_engine_session.execute("""\
+        ALTER TABLE `geo_ip_blocks` ADD PRIMARY KEY `ip_to` (`ip_to`);
+        ALTER TABLE `geo_ip_locations` ADD PRIMARY KEY `geoname_id` (`geoname_id`);
+        """)
+        upc_engine_session.commit()
+    except Exception as err:
+        print err
 
-LOAD DATA LOCAL INFILE '{file_absolute_path}' INTO TABLE geo_ip_locations COLUMNS TERMINATED BY ',' OPTIONALLY ENCLOSED BY '"' IGNORE 1 LINES (
-geoname_id,
-locale_code,
-continent_code,
-continent_name,
-country_iso_code,
-country_name,
-subdivision_1_iso_code,
-subdivision_1_name,
-subdivision_2_iso_code,
-subdivision_2_name,
-city_name,
-metro_code,
-time_zone);
-""".format(file_absolute_path=city_locations_file_path)
+    # -----------------
+    # Creates Function
+    # -----------------
+    # TODO: FIX SQL syntax on CREATE FUNCTION statement.
+    # try:
+    #     upc_engine_engine.execute("""DROP FUNCTION IF EXISTS `IP2Location`;""")
+    #     upc_engine_session.commit()
+    # except Exception as err:
+    #     print err
+    #
+    # upc_engine_engine.execute("""\
+    # DELIMITER $$
+    #
+    # CREATE FUNCTION `IP2Location`(`ip` varchar(50))
+    #     RETURNS int(11)
+    #     LANGUAGE SQL
+    #     DETERMINISTIC
+    #     CONTAINS SQL
+    #     SQL SECURITY DEFINER
+    #     COMMENT ''
+    # BEGIN
+    #
+    # DECLARE loc_id INT;
+    #
+    # SELECT geoname_id INTO loc_id FROM geo_ip_blocks WHERE ip_to >= INET_ATON(TRIM(ip)) ORDER BY ip_to LIMIT 1;
+    #
+    # RETURN IFNULL(loc_id, 0);
+    #
+    # END $$
+    # """)
+    # upc_engine_session.commit()
 
-# Execute query and commit
-upc_engine_session.execute(load_city_locations_sql)
-upc_engine_session.commit()
-# End
-
-# ---------------
-# Create Indexes
-# ---------------
-try:
-    upc_engine_session.execute("""\
-    ALTER TABLE `geo_ip_blocks` ADD PRIMARY KEY `ip_to` (`ip_to`);
-    ALTER TABLE `geo_ip_locations` ADD PRIMARY KEY `geoname_id` (`geoname_id`);
-    """)
-    upc_engine_session.commit()
-except Exception as err:
-    print err
-
-
-# -----------------
-# Creates Function
-# -----------------
-# TODO: FIX SQL syntax on CREATE FUNCTION statement.
-# try:
-#     upc_engine_engine.execute("""DROP FUNCTION IF EXISTS `IP2Location`;""")
-#     upc_engine_session.commit()
-# except Exception as err:
-#     print err
-#
-# upc_engine_engine.execute("""\
-# DELIMITER $$
-#
-# CREATE FUNCTION `IP2Location`(`ip` varchar(50))
-#     RETURNS int(11)
-#     LANGUAGE SQL
-#     DETERMINISTIC
-#     CONTAINS SQL
-#     SQL SECURITY DEFINER
-#     COMMENT ''
-# BEGIN
-#
-# DECLARE loc_id INT;
-#
-# SELECT geoname_id INTO loc_id FROM geo_ip_blocks WHERE ip_to >= INET_ATON(TRIM(ip)) ORDER BY ip_to LIMIT 1;
-#
-# RETURN IFNULL(loc_id, 0);
-#
-# END $$
-# """)
-# upc_engine_session.commit()
+if __name__ == "__main__":
+    # Main function
+    sync()
